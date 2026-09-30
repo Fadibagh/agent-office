@@ -87,12 +87,15 @@ import { TelescopeView } from './telescope';
 import { onModelsProgress, preloadModels } from './world/models';
 import { loadingScreen } from './ui/loading';
 import { SlowFrames } from './framerate';
+import { GRAPHICS, chosenQuality, lower, type Quality } from './graphics';
 import { offerLite, touchOnly } from './ui/litesuggest';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
 const loading = loadingScreen(onModelsProgress);
 // Came here from the 2D view's 🏢 3D button: it isn't offered straight back.
 const chose3d = new URLSearchParams(location.search).has('3d');
+// The graphics quality asked for (?gfx=…), read before the address is tidied up just below.
+const picked = chosenQuality();
 if (chose3d) history.replaceState(null, '', location.pathname);
 /** Offers the 2D view (/lite) where the 3D is hard going. */
 const offer2d = (why: 'touch' | 'slow') => chose3d || offerLite(why);
@@ -104,8 +107,9 @@ await preloadModels();
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
 const renderer = makeRenderer() ?? (await noWebGL());
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
+// Shadows are redrawn on our own schedule (see frame), every frame or every few at lower quality.
+renderer.shadowMap.autoUpdate = false;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
@@ -131,6 +135,24 @@ Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 30, bottom: -30, n
 sun.shadow.bias = -0.0008;
 sun.shadow.normalBias = 0.03;
 scene.add(sun);
+
+// How sharp, how often the shadows are redrawn, and whether things are outlined (see graphics.ts).
+const qualityChosen = picked.chosen;
+let quality = picked.quality;
+let gfx = GRAPHICS[quality];
+function setQuality(q: Quality) {
+  quality = q;
+  gfx = GRAPHICS[q];
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, gfx.maxPixelRatio));
+  if (sun.shadow.mapSize.x !== gfx.shadowSize) {
+    sun.shadow.mapSize.set(gfx.shadowSize, gfx.shadowSize);
+    sun.shadow.map?.dispose();
+    sun.shadow.map = null;
+  }
+  effect.enabled = gfx.outlines;
+  renderer.shadowMap.needsUpdate = true;
+}
+setQuality(quality);
 
 const office = buildOffice();
 scene.add(office.group);
@@ -3612,7 +3634,9 @@ const headPos = new THREE.Vector3();
 /** Last frame went through the drunk vision. */
 let drunkVisionOn = false;
 /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
-const slowFrames = new SlowFrames();
+let slowFrames = new SlowFrames();
+/** Frames drawn, to redraw shadows every few of them. */
+let frameCount = 0;
 
 function frame(ts?: number) {
   timer.update(ts);
@@ -3620,7 +3644,16 @@ function frame(ts?: number) {
   const dt = Math.min(delta, 0.1);
   const t = timer.getElapsed();
   const now = performance.now();
-  if (slowFrames.frame(now, delta * 1000)) offer2d('slow');
+  if (slowFrames.frame(now, delta * 1000)) {
+    // Too slow: a step down in quality first, unless one was picked; the 2D view once there's none left.
+    const next = qualityChosen ? null : lower(quality);
+    if (next) {
+      console.info(`3D running slowly: graphics quality ${quality} → ${next} (?gfx=high|medium|low to pick one)`);
+      setQuality(next);
+      slowFrames = new SlowFrames();
+    } else offer2d('slow');
+  }
+  if (frameCount++ % gfx.shadowEvery === 0) renderer.shadowMap.needsUpdate = true;
 
   // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
   const secs = now / 1000;
