@@ -87,7 +87,7 @@ import { TelescopeView } from './telescope';
 import { onModelsProgress, preloadModels } from './world/models';
 import { loadingScreen } from './ui/loading';
 import { SlowFrames } from './framerate';
-import { GRAPHICS, chosenQuality, keepQuality, lower, type Quality, type QualityPick } from './graphics';
+import { GRAPHICS, NO_OUTLINE, ShadowWatch, SmallThings, chosenQuality, keepQuality, lower, type Quality, type QualityPick } from './graphics';
 import { offerLite, touchOnly } from './ui/litesuggest';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
@@ -121,6 +121,8 @@ scene.fog = new THREE.Fog('#bfe3ff', 40, 90);
 /** How far the camera sees in the office: as far as the haze ever is, from the top floor. */
 const FAR = HAZE_MAX + 20;
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, FAR);
+// Small things left without outlines are on a layer of their own that only the outline pass skips.
+camera.layers.enable(NO_OUTLINE);
 
 const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5);
 const ambient = new THREE.AmbientLight('#ffffff', 0.5);
@@ -140,6 +142,14 @@ scene.add(sun);
 let qualityChosen = picked.chosen;
 let quality = picked.quality;
 let gfx = GRAPHICS[quality];
+/** The small things whose shadows and outlines a lower quality leaves off (found as the frames go by). */
+const small = new SmallThings();
+const drawOutline = effect.renderOutline;
+effect.renderOutline = (s, c) => {
+  c.layers.disable(NO_OUTLINE);
+  drawOutline(s, c);
+  c.layers.enable(NO_OUTLINE);
+};
 function setQuality(q: Quality) {
   quality = q;
   gfx = GRAPHICS[q];
@@ -150,6 +160,7 @@ function setQuality(q: Quality) {
     sun.shadow.map = null;
   }
   effect.enabled = gfx.outlines;
+  small.apply(gfx);
   renderer.shadowMap.needsUpdate = true;
 }
 setQuality(quality);
@@ -3331,6 +3342,7 @@ document.addEventListener('pointerlockchange', () => {
 
 // ---- Clicking the world: use what's under the crosshair (first person) or the mouse (third) ----------
 const raycaster = new THREE.Raycaster();
+raycaster.layers.enable(NO_OUTLINE);
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
 const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5 };
@@ -3645,6 +3657,14 @@ let drunkVisionOn = false;
 let slowFrames = new SlowFrames();
 /** Frames drawn, to redraw shadows every few of them. */
 let frameCount = 0;
+/** Shadows are only drawn again once something casting one has moved enough to see (or the sun has)… */
+const shadowWatch = new ShadowWatch();
+let shadowsStale = true;
+/** …on the frame they were last drawn, and at least this often (frames) whatever happens. */
+let shadowsAt = 0;
+const SHADOWS_ANYWAY = 120;
+/** When the scene was last looked through for new small things. */
+let smallAt = -Infinity;
 
 function frame(ts?: number) {
   timer.update(ts);
@@ -3661,7 +3681,17 @@ function frame(ts?: number) {
       slowFrames = new SlowFrames();
     } else offer2d('slow');
   }
-  if (frameCount++ % gfx.shadowEvery === 0) renderer.shadowMap.needsUpdate = true;
+  frameCount++;
+  const drawShadows = (shadowsStale && frameCount - shadowsAt >= gfx.shadowEvery) || frameCount - shadowsAt >= SHADOWS_ANYWAY;
+  if (drawShadows) {
+    renderer.shadowMap.needsUpdate = true;
+    shadowsStale = false;
+    shadowsAt = frameCount;
+  }
+  if (now - smallAt > 2000) {
+    smallAt = now;
+    if (small.scan(scene)) small.apply(gfx);
+  }
 
   // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
   const secs = now / 1000;
@@ -3852,6 +3882,8 @@ function frame(ts?: number) {
   else if (drunkVisionOn) drunkVision.release();
   drunkVisionOn = blurry;
   effect.render(scene, camera);
+  if (drawShadows) shadowWatch.drew(scene, sun);
+  else if (!shadowsStale && shadowWatch.changed(scene, sun)) shadowsStale = true;
   pointToWaiting(now);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
   if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active) {
