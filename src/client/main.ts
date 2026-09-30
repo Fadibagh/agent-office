@@ -87,7 +87,7 @@ import { TelescopeView } from './telescope';
 import { onModelsProgress, preloadModels } from './world/models';
 import { loadingScreen } from './ui/loading';
 import { SlowFrames } from './framerate';
-import { GRAPHICS, chosenQuality, lower, type Quality } from './graphics';
+import { GRAPHICS, chosenQuality, keepQuality, lower, type Quality, type QualityPick } from './graphics';
 import { offerLite, touchOnly } from './ui/litesuggest';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
@@ -137,7 +137,7 @@ sun.shadow.normalBias = 0.03;
 scene.add(sun);
 
 // How sharp, how often the shadows are redrawn, and whether things are outlined (see graphics.ts).
-const qualityChosen = picked.chosen;
+let qualityChosen = picked.chosen;
 let quality = picked.quality;
 let gfx = GRAPHICS[quality];
 function setQuality(q: Quality) {
@@ -153,6 +153,13 @@ function setQuality(q: Quality) {
   renderer.shadowMap.needsUpdate = true;
 }
 setQuality(quality);
+/** A quality picked in ⚙️ Settings, or auto: back to high, stepping down again if it's slow. */
+function pickQuality(pick: QualityPick) {
+  keepQuality(pick);
+  qualityChosen = pick !== 'auto';
+  setQuality(pick === 'auto' ? 'high' : pick);
+  slowFrames = new SlowFrames();
+}
 
 const office = buildOffice();
 scene.add(office.group);
@@ -3591,6 +3598,7 @@ function showSettings(pane?: SettingsPane) {
     () => sound.ding('done'),
     notifier,
     signOut,
+    { now: () => ({ quality, chosen: qualityChosen }), pick: pickQuality },
     store.sky ? { now: describeSky(store.sky), live: !!store.sky.city } : undefined,
     pane,
   );

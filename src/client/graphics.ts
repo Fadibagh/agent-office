@@ -3,6 +3,8 @@
 // down on its own when frames come too slowly (see frame in main.ts), before the 2D view is offered.
 
 export type Quality = 'high' | 'medium' | 'low';
+/** What ⚙️ Settings offers: a quality kept for next time, or auto, which steps down by itself. */
+export type QualityPick = Quality | 'auto';
 
 export interface Graphics {
   /** The most pixels drawn per CSS pixel: 2 is a Retina screen's full sharpness. */
@@ -38,6 +40,16 @@ export function chosenQuality(): { quality: Quality; chosen: boolean } {
     if (isQuality(asked)) return { quality: asked, chosen: true };
   }
   return { quality: 'high', chosen: false };
+}
+
+/** Keeps a quality picked in ⚙️ Settings for next time; auto forgets it. */
+export function keepQuality(pick: QualityPick) {
+  try {
+    if (pick === 'auto') localStorage.removeItem(KEY);
+    else localStorage.setItem(KEY, pick);
+  } catch {
+    // storage blocked: it lasts until the page is reloaded
+  }
 }
 
 /** One step easier on the graphics card, or null at the bottom already. */
