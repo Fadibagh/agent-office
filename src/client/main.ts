@@ -3860,7 +3860,12 @@ function frame(ts?: number) {
     renderer.clearDepth();
     hands.setLight(sky.lightAt(camera.position));
     sky.shading(false);
+    // Drawn over the office, not instead of it: with the outlines off (low quality) the effect is a
+    // plain render, which would clear the screen first (the outline pass happens to skip that).
+    const autoClear = renderer.autoClear;
+    renderer.autoClear = false;
     effect.render(hands.scene, hands.camera);
+    renderer.autoClear = autoClear;
     sky.shading(true);
   }
   if (blurry) drunkVision.end(drunk, t, !reduceMotion.matches);
