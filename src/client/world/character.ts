@@ -309,7 +309,8 @@ function undress(parts: THREE.Object3D[]) {
 
 /** A chibi cartoon person — used for every human in the office. Forward is +z. */
 export class Person {
-  readonly root = new THREE.Group();
+  /** Marked as someone, so a lower graphics quality leaves their little parts alone (see graphics.ts). */
+  readonly root = Object.assign(new THREE.Group(), { userData: { character: true } });
   private body = new THREE.Group();
   private legL: THREE.Object3D;
   private legR: THREE.Object3D;
@@ -1417,7 +1418,8 @@ const HOP = 0.5;
 
 /** The little Claude worker that sits at a desk. Forward is +z. */
 export class Worker {
-  readonly root = new THREE.Group();
+  /** Marked as someone, so a lower graphics quality leaves their little parts alone (see graphics.ts). */
+  readonly root = Object.assign(new THREE.Group(), { userData: { character: true } });
   private body = new THREE.Group();
   private bulb: THREE.MeshToonMaterial;
   private bulbMesh: THREE.Mesh;

@@ -7,6 +7,20 @@ import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
 import { h, openModal, timeAgo } from './dom';
 import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
+import type { Quality, QualityPick } from '../graphics';
+
+const GFX: [QualityPick, string][] = [
+  ['auto', '✨ Auto'],
+  ['high', 'High'],
+  ['medium', 'Medium'],
+  ['low', 'Low'],
+];
+
+/** The 3D office's graphics quality (see graphics.ts): what it is now and whether it was picked, and picking one. */
+export interface GraphicsControl {
+  now: () => { quality: Quality; chosen: boolean };
+  pick: (p: QualityPick) => void;
+}
 
 const VIEWS: [ViewMode, string, string][] = [
   ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
@@ -44,7 +58,7 @@ const setting = (title: string, scope: Scope | null, ...body: Node[]) =>
 let lastPane: SettingsPane = 'you';
 
 /** `outside` describes the sky over the office (see describeSky), once the server has said. `first` opens on that category instead of the last one. */
-export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }, first?: SettingsPane) {
+export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void, graphics: GraphicsControl, outside?: { now: string; live: boolean }, first?: SettingsPane) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {
@@ -104,6 +118,42 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     return row;
   };
   const soundRow = volumeRow('Office sounds volume', 'volume', 'muted', previewSound);
+
+  // The 3D office's graphics quality, for this browser.
+  const gfxRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Graphics quality' });
+  const gfxNote = h('p.setting-note');
+  const paintGfx = () => {
+    const { quality, chosen } = graphics.now();
+    const pick: QualityPick = chosen ? quality : 'auto';
+    gfxRow.replaceChildren(
+      ...GFX.map(([p, label]) =>
+        h(
+          'button.btn',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(pick === p),
+            class: pick === p ? 'on' : '',
+            onclick: () => {
+              if (pick === p) return;
+              graphics.pick(p);
+              paintGfx();
+            },
+          },
+          label,
+        ),
+      ),
+    );
+    const what = {
+      high: 'Full sharpness, shadows every frame and the cartoon outlines.',
+      medium: 'A little less sharp on a Retina screen, and shadows redrawn every other frame.',
+      low: 'Normal sharpness, smaller shadows redrawn every third frame, and no outlines: the easiest on the graphics card.',
+    }[quality];
+    gfxNote.textContent = chosen
+      ? `${what} Kept in this browser.`
+      : `Starts on high and steps down by itself when the office runs slowly. Now on ${quality}: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
+  };
+  paintGfx();
 
   // Voice chat: an open mic, or muted until you hold V.
   const talkRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Voice chat' });
@@ -470,6 +520,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     you: [
       setting('Your character', null, character),
       setting('Camera view', 'you', seg, note),
+      setting('Graphics quality', 'you', gfxRow, gfxNote),
       setting('Signed in', null, h('div.volume', {}, signOut), h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.')),
     ],
     sound: [

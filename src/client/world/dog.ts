@@ -136,7 +136,7 @@ interface Rig {
  * has one; the woof, the panting, blinking and dressing up are done here.
  */
 export class Dog {
-  readonly root = new THREE.Group();
+  readonly root = Object.assign(new THREE.Group(), { userData: { character: true } });
   readonly interactable: Interactable = { kind: 'dog', x: 0, z: 0, radius: 1.5 };
   /** Holds the model, and lifts it off the floor for the little hop it gives with a woof. */
   private body = new THREE.Group();
